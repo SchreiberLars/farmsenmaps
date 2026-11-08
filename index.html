@@ -1028,11 +1028,12 @@ function planeImage(){
   x.lineJoin='round'; x.lineWidth=4; x.strokeStyle='#0b1118'; x.stroke(); x.fillStyle='#ffd23f'; x.fill();
   return x.getImageData(0,0,s,s);
 }
-const PLANE_LAT=53.6064, PLANE_LON=10.1186;
+const PLANE_LAT=53.6064, PLANE_LON=10.1186, PLANE_PROXY='https://qfzzzxlxyvaokmrkbdrp.supabase.co/functions/v1/flugzeuge'; // Proxy (Supabase Edge Function), weil die ADS-B-Dienste kein CORS erlauben
+let lastPlaneSource='adsb.lol';
 let planeTimer=null, planes=[];
 async function loadPlanesAdsbLol(){
-  const r=await fetch(`https://api.adsb.lol/v2/point/${PLANE_LAT}/${PLANE_LON}/40`); if(!r.ok) throw new Error('HTTP '+r.status);
-  const j=await r.json();
+  const r=await fetch(PLANE_PROXY); if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json(); lastPlaneSource=j.source||'adsb.lol';
   return (j.ac||[]).filter(a=>a.lat!=null&&a.lon!=null).map(a=>({ id:a.hex, call:(a.flight||'').trim(), lon:a.lon, lat:a.lat,
     ground:a.alt_baro==='ground', alt:typeof a.alt_baro==='number'?a.alt_baro*0.3048:null, speed:a.gs!=null?a.gs*1.852:null,
     track:a.track||a.true_heading||0, typ:a.t||'', reg:a.r||'' }));
@@ -1046,7 +1047,7 @@ async function loadPlanesOpenSky(){
 async function fetchPlanes(){
   if(document.hidden || !$('tPlanes').checked) return;
   let quelle='adsb.lol';
-  try{ planes=await loadPlanesAdsbLol(); }
+  try{ planes=await loadPlanesAdsbLol(); quelle=lastPlaneSource; }
   catch(e){ try{ planes=await loadPlanesOpenSky(); quelle='OpenSky'; }catch(e2){ $('planeInfo').textContent='Flugdaten gerade nicht erreichbar'; return; } }
   map.getSource('planes').setData({type:'FeatureCollection',features:planes.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.lon,p.lat]},
     properties:{ id:p.id, track:p.track, ground:p.ground, label:(p.call||p.reg||'')+(p.alt&&!p.ground?' '+Math.round(p.alt/10)*10+' m':'') }}))});
