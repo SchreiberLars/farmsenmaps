@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farmsen-Berne Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-contour@0.1.1/dist/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/osmtogeojson@3.0.0-beta.5/osmtogeojson.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/opening_hours@3.15.0/build/opening_hours.js"></script>
+<style>
+:root{
+  --bg:#0f1720; --panel:rgba(17,24,33,.86); --panel-solid:#121a24; --line:rgba(255,255,255,.08);
+  --text:#e8eef5; --muted:#8fa0b3; --accent:#4cc38a; --accent-2:#3b82f6; --radius:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px}
+#map{position:absolute;inset:0}
+button,input{font:inherit;color:inherit}
+.glass{background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+
+/* Panel */
+#panel{position:absolute;top:16px;left:16px;bottom:16px;width:370px;display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.brand{padding:18px 20px 12px;display:flex;align-items:center;gap:12px}
+.logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#4cc38a,#3b82f6);display:grid;place-items:center;font-weight:700;color:#0b1118}
+.brand h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:12.5px}
+.tabs{display:flex;gap:4px;margin:0 16px;padding:4px;background:rgba(255,255,255,.05);border-radius:12px}
+.tabs button{flex:1;border:0;background:none;padding:8px 0;border-radius:9px;cursor:pointer;color:var(--muted);font-weight:600}
+.tabs button.on{background:rgba(255,255,255,.1);color:var(--text)}
+.scroll{flex:1;overflow:auto;padding:14px 16px 18px}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:8px}
+.section{margin-bottom:18px}
+.section h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 9px;font-weight:600}
+.seg{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.seg button{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px;cursor:pointer;text-align:left}
+.seg button b{display:block;font-weight:600}
+.seg button span{color:var(--muted);font-size:12px}
+.seg button.on{border-color:var(--accent);background:rgba(76,195,138,.12)}
+.row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row small{display:block;color:var(--muted);font-size:12px}
+.switch{position:relative;width:38px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch i{position:absolute;inset:0;background:rgba(255,255,255,.15);border-radius:22px;transition:.2s;cursor:pointer}
+.switch i:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+i{background:var(--accent)}
+.switch input:checked+i:before{transform:translateX(16px)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:rgba(255,255,255,.05);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:500}
+.btn:hover{background:rgba(255,255,255,.1)}
+.search{width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.05);outline:none}
+.search:focus{border-color:var(--accent-2)}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.preset{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:999px;padding:6px 11px;cursor:pointer;font-size:12.5px}
+.preset:hover{border-color:var(--accent)}
+.theme{border:1px solid var(--line);border-radius:14px;margin-bottom:8px;overflow:hidden}
+.theme-head{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;user-select:none}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.theme-head b{flex:1;font-weight:600}
+.theme-head .cnt{color:var(--muted);font-size:12px}
+.theme-head .chev{transition:.2s;color:var(--muted)}
+.theme.open .chev{transform:rotate(90deg)}
+.theme-body{display:none;padding:0 12px 10px;flex-wrap:wrap;gap:6px}
+.theme.open .theme-body{display:flex}
+.chip{border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12.5px;cursor:pointer;background:rgba(255,255,255,.03);display:flex;gap:6px;align-items:center}
+.chip em{font-style:normal;color:var(--muted)}
+.chip.on{background:var(--c);border-color:var(--c);color:#0b1118;font-weight:600}
+.chip.on em{color:rgba(0,0,0,.55)}
+.chip.zero{opacity:.45}
+.list{margin-top:6px}
+.item{padding:10px 10px;border-radius:12px;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+.item:hover{background:rgba(255,255,255,.06)}
+.item .dot{margin-top:4px}
+.item b{display:block;font-weight:600}
+.item small{color:var(--muted);font-size:12px}
+.open-yes{color:#4cc38a}.open-no{color:#f08c8c}
+.muted{color:var(--muted)}
+.foot{padding:10px 16px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.foot a{color:var(--muted)}
+
+/* Floating */
+#hud{position:absolute;right:16px;bottom:52px;padding:12px 14px;min-width:200px;z-index:4}
+#hud .big{font-size:22px;font-weight:700;letter-spacing:-.02em}
+#hud small{color:var(--muted)}
+#legend{position:absolute;right:16px;bottom:146px;padding:10px 12px;width:200px;z-index:4;display:none}
+#legend .bar{height:10px;border-radius:5px;margin:6px 0 4px}
+#legend .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+#toast{position:absolute;top:18px;left:50%;transform:translateX(-50%);padding:10px 16px;z-index:6;display:none;align-items:center;gap:10px}
+.spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+#mobileToggle{display:none}
+
+.maplibregl-popup-content{background:var(--panel-solid);color:var(--text);border-radius:14px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.4);border:1px solid var(--line);font-family:Inter,sans-serif;min-width:220px}
+.maplibregl-popup-tip{border-top-color:var(--panel-solid)!important;border-bottom-color:var(--panel-solid)!important}
+.maplibregl-popup-close-button{color:var(--muted);font-size:18px;right:6px;top:4px}
+.pop h4{margin:0 0 6px;font-size:15px}
+.pop .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;color:#0b1118;margin-bottom:8px}
+.pop div{margin:3px 0;font-size:13px}
+.pop a{color:#7fb2ff}
+.maplibregl-ctrl-group{background:var(--panel-solid)!important;border:1px solid var(--line)}
+.maplibregl-ctrl-group button span{filter:invert(1)}
+.maplibregl-ctrl-group button+button{border-top:1px solid var(--line)!important}
+
+@media (max-width:760px){
+  #panel{left:8px;right:8px;top:auto;bottom:8px;width:auto;height:58vh;transition:height .25s}
+  #panel.min{height:118px}
+  #hud{top:12px;left:12px;right:auto;bottom:auto;min-width:0;padding:8px 10px}
+  #hud .big{font-size:17px}
+  #legend{top:88px;left:12px;right:auto;bottom:auto;width:170px}
+  #mobileToggle{display:block;position:absolute;right:14px;top:16px;border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer}
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<aside id="panel" class="glass">
+  <button id="mobileToggle" aria-label="Panel ein- oder ausklappen">⌄</button>
+  <div class="brand">
+    <div class="logo">FB</div>
+    <div><h1>Farmsen-Berne</h1><p>Stadtteil-Explorer Hamburg</p></div>
+  </div>
+  <div class="tabs">
+    <button class="on" data-tab="orte">Orte</button>
+    <button data-tab="karte">Karte</button>
+  </div>
+
+  <div class="scroll" id="tab-orte">
+    <input class="search" id="search" placeholder="Suchen, z. B. Apotheke, Schwimmbad, Rewe">
+    <div class="presets" id="presets"></div>
+    <div class="section" style="margin-top:14px">
+      <div class="row"><div>Nur jetzt geöffnet<small>laut Öffnungszeiten in OSM</small></div><label class="switch"><input type="checkbox" id="onlyOpen"><i></i></label></div>
+      <div class="row"><div>Nur in Farmsen-Berne<small>sonst inkl. Umgebung</small></div><label class="switch"><input type="checkbox" id="onlyInside"><i></i></label></div>
+    </div>
+    <div class="section"><h3>Themen</h3><div id="themes"></div></div>
+    <div class="section"><h3 id="listTitle">In der Nähe</h3><div class="list" id="list"></div></div>
+  </div>
+
+  <div class="scroll" id="tab-karte" hidden>
+    <div class="section"><h3>Ansicht</h3>
+      <div class="seg" id="views">
+        <button data-view="karte" class="on"><b>Straßenkarte</b><span>Vektor, detailliert</span></button>
+        <button data-view="satellit"><b>Satellit</b><span>Luftbild</span></button>
+        <button data-view="topo"><b>Topografie</b><span>Höhenlinien, Relief</span></button>
+        <button data-view="hoehe"><b>Höhenschichten</b><span>Meter über NHN</span></button>
+      </div>
+    </div>
+    <div class="section"><h3>Ebenen</h3>
+      <div class="row"><div>3D-Gebäude</div><label class="switch"><input type="checkbox" id="tBuildings" checked><i></i></label></div>
+      <div class="row"><div>Gebäude der Orte einfärben<small>gefilterte Orte als farbige Gebäude</small></div><label class="switch"><input type="checkbox" id="tAreas" checked><i></i></label></div>
+      <div class="row"><div>Höhenlinien</div><label class="switch"><input type="checkbox" id="tContours"><i></i></label></div>
+      <div class="row"><div>Schummerung<small>Geländeschatten</small></div><label class="switch"><input type="checkbox" id="tHillshade"><i></i></label></div>
+      <div class="row"><div>Stadtteil hervorheben</div><label class="switch"><input type="checkbox" id="tMask" checked><i></i></label></div>
+    </div>
+    <div class="section"><h3>Gelände in 3D</h3>
+      <div class="row"><div>Überhöhung <b id="exVal">1x</b><small>Farmsen ist flach, Überhöhung macht Hügel sichtbar</small></div></div>
+      <input type="range" id="exaggeration" min="1" max="8" step="0.5" value="1">
+    </div>
+    <div class="section"><h3>Kamera</h3>
+      <div class="btns">
+        <button class="btn" id="b3d">3D-Ansicht</button>
+        <button class="btn" id="b2d">Draufsicht</button>
+        <button class="btn" id="bHome">Farmsen zentrieren</button>
+        <button class="btn" id="bReload">Daten neu laden</button>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span id="stand">Daten: OpenStreetMap</span><a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Fehler melden</a></div>
+</aside>
+
+<div id="legend" class="glass"><small class="muted">Höhe über NHN</small><div class="bar" id="legendBar"></div><div class="ticks" id="legendTicks"></div></div>
+<div id="hud" class="glass"><small>Höhe am Cursor</small><div class="big" id="elev">-</div><small id="coord">Maus über die Karte bewegen</small></div>
+<div id="toast" class="glass"><div class="spin"></div><span id="toastText">Lade Daten</span></div>
+
+<script>
+"use strict";
+/* ============ Konfiguration ============ */
+const HOME = { center:[10.1186,53.6064], zoom:14.3, pitch:58, bearing:-18 };
+const FALLBACK_BBOX = [10.090,53.590,10.150,53.628]; // W,S,E,N
+const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const OVERPASS = ['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+const CACHE_KEY = 'farmsen-osm-v1', CACHE_DAYS = 7;
+
+const notPrivate = t => !['private','no','customers'].includes(t.access);
+const THEMEN = [
+ { id:'gesundheit', name:'Gesundheit', farbe:'#f0616d', kats:[
+   { id:'aerzte', name:'Ärzte', m:t=>t.amenity==='doctors'||t.healthcare==='doctor'||t.amenity==='clinic' },
+   { id:'zahn', name:'Zahnärzte', m:t=>t.amenity==='dentist'||t.healthcare==='dentist' },
+   { id:'apotheke', name:'Apotheken', m:t=>t.amenity==='pharmacy'||t.healthcare==='pharmacy' },
+   { id:'physio', name:'Physiotherapie', m:t=>t.healthcare==='physiotherapist' },
+   { id:'klinik', name:'Krankenhäuser', m:t=>t.amenity==='hospital'||t.healthcare==='hospital' },
+ ]},
+ { id:'einkaufen', name:'Einkaufen', farbe:'#f5a524', kats:[
+   { id:'ekz', name:'Einkaufszentren', m:t=>t.shop==='mall'||t.shop==='department_store' },
+   { id:'super', name:'Supermärkte', m:t=>t.shop==='supermarket' },
+   { id:'baecker', name:'Bäcker', m:t=>t.shop==='bakery' },
+   { id:'drogerie', name:'Drogerien', m:t=>t.shop==='chemist' },
+   { id:'markt', name:'Wochenmärkte', m:t=>t.amenity==='marketplace' },
+ ]},
+ { id:'freizeit', name:'Freizeit & Kultur', farbe:'#a78bfa', kats:[
+   { id:'kino', name:'Kinos', m:t=>t.amenity==='cinema' },
+   { id:'biblio', name:'Bibliotheken', m:t=>t.amenity==='library' },
+   { id:'kultur', name:'Kultur & Treffpunkte', m:t=>['arts_centre','community_centre','theatre','social_centre'].includes(t.amenity) },
+   { id:'cafe', name:'Cafés & Eis', m:t=>t.amenity==='cafe'||t.amenity==='ice_cream' },
+   { id:'essen', name:'Restaurants', m:t=>t.amenity==='restaurant'||t.amenity==='fast_food' },
+ ]},
+ { id:'sport', name:'Sport', farbe:'#4cc38a', kats:[
+   { id:'fitness', name:'Fitnessstudios', m:t=>t.leisure==='fitness_centre'||(t.leisure==='sports_centre'&&/fitness/.test(t.sport||'')) },
+   { id:'schwimmen', name:'Schwimmbäder', m:t=>notPrivate(t)&&(t.leisure==='water_park'||t.amenity==='public_bath'||t.leisure==='swimming_area'||(t.leisure==='swimming_pool'&&!!t.name)||(t.leisure==='sports_centre'&&/swimming/.test(t.sport||''))) },
+   { id:'halle', name:'Sporthallen & Zentren', m:t=>['sports_centre','sports_hall','stadium'].includes(t.leisure)&&!/fitness/.test(t.sport||'') },
+   { id:'platz', name:'Sportplätze', m:t=>(t.leisure==='pitch'||t.leisure==='track')&&notPrivate(t) },
+   { id:'verein', name:'Sportvereine', m:t=>t.club==='sport' },
+ ]},
+ { id:'familie', name:'Familie & Kinder', farbe:'#38bdf8', kats:[
+   { id:'spielplatz', name:'Spielplätze', m:t=>t.leisure==='playground' },
+   { id:'bolz', name:'Bolz-, Basketball- & Skateplätze', m:t=>t.leisure==='pitch'&&notPrivate(t)&&/soccer|basketball|skateboard|multi|table_tennis/.test(t.sport||'') },
+   { id:'kita', name:'Kitas', m:t=>t.amenity==='kindergarten'||t.amenity==='childcare' },
+   { id:'schule', name:'Schulen', m:t=>t.amenity==='school' },
+   { id:'aktiv', name:'Minigolf, Trampolin & Co.', m:t=>['miniature_golf','trampoline_park','ice_rink','climbing'].includes(t.leisure)||/climbing/.test(t.sport||'')&&t.leisure==='sports_centre' },
+ ]},
+ { id:'natur', name:'Natur', farbe:'#84cc16', kats:[
+   { id:'park', name:'Parks', m:t=>t.leisure==='park' },
+   { id:'hund', name:'Hundeauslauf', m:t=>t.leisure==='dog_park' },
+   { id:'kleingarten', name:'Kleingärten', m:t=>t.landuse==='allotments' },
+ ]},
+ { id:'mobil', name:'Mobilität', farbe:'#60a5fa', kats:[
+   { id:'ubahn', name:'U-Bahn & Bahn', m:t=>t.railway==='station' },
+   { id:'bus', name:'Bushaltestellen', m:t=>t.highway==='bus_stop' },
+   { id:'stadtrad', name:'StadtRAD & Leihräder', m:t=>t.amenity==='bicycle_rental' },
+   { id:'laden', name:'Ladesäulen', m:t=>t.amenity==='charging_station' },
+ ]},
+ { id:'service', name:'Service', farbe:'#94a3b8', kats:[
+   { id:'post', name:'Post & Pakete', m:t=>t.amenity==='post_office'||t.amenity==='parcel_locker' },
+   { id:'bank', name:'Banken & Geldautomaten', m:t=>t.amenity==='bank'||t.amenity==='atm' },
+ ]},
+];
+const PRESETS = [
+  { name:'Mit Kindern aktiv', kats:['spielplatz','bolz','schwimmen','verein','halle','aktiv'] },
+  { name:'Gesundheit', kats:['aerzte','zahn','apotheke','physio','klinik'] },
+  { name:'Alltag', kats:['super','baecker','drogerie','apotheke','post','bank'] },
+  { name:'Freizeit', kats:['kino','cafe','essen','fitness','schwimmen','park'] },
+  { name:'Alles aus', kats:[] },
+];
+const DEFAULT_ON = ['aerzte','apotheke','ekz','super','kino','fitness','schwimmen','spielplatz','ubahn'];
+
+const EINZEL = { aerzte:'Arztpraxis', zahn:'Zahnarztpraxis', apotheke:'Apotheke', super:'Supermarkt', baecker:'Bäckerei', cafe:'Café', essen:'Imbiss/Restaurant',
+  schwimmen:'Schwimmbad', halle:'Sportanlage', platz:'Sportplatz', bolz:'Bolzplatz', spielplatz:'Spielplatz', kita:'Kita', schule:'Schule', park:'Grünanlage',
+  hund:'Hundeauslauf', kleingarten:'Kleingartenanlage', bus:'Bushaltestelle', stadtrad:'Leihrad-Station', laden:'Ladesäule', post:'Packstation', bank:'Geldautomat' };
+const KAT = {}; THEMEN.forEach(th=>th.kats.forEach(k=>{k.theme=th; KAT[k.id]=k;}));
+
+/* ============ Zustand ============ */
+const state = { features:[], boundary:null, active:new Set(DEFAULT_ON), query:'', onlyOpen:false, onlyInside:false, view:'karte', exaggeration:1, openThemes:new Set(['gesundheit','sport','familie']) };
+const $ = id => document.getElementById(id);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(text){ if(!text){$('toast').style.display='none';return;} $('toastText').textContent=text; $('toast').style.display='flex'; }
+
+/* ============ Karte ============ */
+const demSource = new mlcontour.DemSource({ url:DEM_URL, encoding:'terrarium', maxzoom:15, worker:true });
+demSource.setupMaplibre(maplibregl);
+
+const map = new maplibregl.Map({ container:'map', style:STYLE_URL, ...HOME, maxPitch:80, hash:false, attributionControl:{compact:true,
+  customAttribution:'POIs © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> | Höhen: Mapzen Terrarium | Satellit: Esri | Topo: OpenTopoMap'} });
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'top-right');
+map.addControl(new maplibregl.ScaleControl({unit:'metric'}), 'bottom-right');
+map.addControl(new maplibregl.GeolocateControl({trackUserLocation:false}), 'top-right');
+window.app = { map, state };
+
+function firstLayerOf(ids){ const L=map.getStyle().layers; for(const l of L){ if(ids(l)) return l.id; } return undefined; }
+
+map.on('load', () => {
+  const style = map.getStyle();
+  const symbolId = firstLayerOf(l=>l.type==='symbol');
+  const buildingId = firstLayerOf(l=>/building/.test(l.id)) || symbolId;
+
+  // Quellen
+  map.addSource('dem', { type:'raster-dem', tiles:[demSource.sharedDemProtocolUrl], tileSize:256, maxzoom:15, encoding:'terrarium' });
+  map.addSource('dem-terrain', { type:'raster-dem', tiles:[demSource.sharedDemProtocolUrl], tileSize:256, maxzoom:15, encoding:'terrarium' });
+  map.addSource('contours', { type:'vector', maxzoom:15, tiles:[ demSource.contourProtocolUrl({
+      thresholds:{ 11:[10,50], 12:[5,25], 14:[2,10], 15:[1,5] }, elevationKey:'ele', levelKey:'level', contourLayer:'contours', overzoom:1 }) ] });
+  map.addSource('sat', { type:'raster', tileSize:256, maxzoom:19, tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] });
+  map.addSource('topo', { type:'raster', tileSize:256, maxzoom:17, tiles:['a','b','c'].map(s=>`https://${s}.tile.opentopomap.org/{z}/{x}/{y}.png`) });
+  map.addSource('mask', { type:'geojson', data:emptyFC() });
+  map.addSource('boundary', { type:'geojson', data:emptyFC() });
+  map.addSource('poi-areas', { type:'geojson', data:emptyFC() });
+  map.addSource('pois', { type:'geojson', data:emptyFC() });
+
+  // Raster-Ansichten unter Gebäuden und Beschriftungen
+  map.addLayer({ id:'sat', type:'raster', source:'sat', layout:{visibility:'none'} }, buildingId);
+  map.addLayer({ id:'topo', type:'raster', source:'topo', layout:{visibility:'none'}, paint:{'raster-opacity':.95} }, buildingId);
+  try {
+    map.addLayer({ id:'relief', type:'color-relief', source:'dem', layout:{visibility:'none'}, paint:{
+      'color-relief-opacity':.75,
+      'color-relief-color':['interpolate',['linear'],['elevation'], ...RELIEF.flatMap(([m,c])=>[m,c])] } }, buildingId);
+  } catch(e){ console.warn('color-relief nicht verfügbar', e); }
+  map.addLayer({ id:'hillshade', type:'hillshade', source:'dem', layout:{visibility:'none'}, paint:{
+    'hillshade-exaggeration':.6, 'hillshade-shadow-color':'#3b2f2a', 'hillshade-highlight-color':'#ffffff' } }, buildingId);
+  map.addLayer({ id:'contour-lines', type:'line', source:'contours', 'source-layer':'contours', layout:{visibility:'none'}, paint:{
+    'line-color':'#8a5a2b', 'line-opacity':['match',['get','level'],1,.75,.4], 'line-width':['match',['get','level'],1,1.3,.6] } }, symbolId);
+  map.addLayer({ id:'contour-labels', type:'symbol', source:'contours', 'source-layer':'contours', filter:['>',['get','level'],0],
+    layout:{visibility:'none','symbol-placement':'line','text-size':11,'text-field':['concat',['number-format',['get','ele'],{}],' m'],'text-font':['Noto Sans Regular']},
+    paint:{'text-color':'#6b4220','text-halo-color':'rgba(255,255,255,.85)','text-halo-width':1.2} });
+
+  // Fokus Stadtteil
+  map.addLayer({ id:'mask', type:'fill', source:'mask', paint:{'fill-color':'#0b1118','fill-opacity':.35} }, symbolId);
+  map.addLayer({ id:'boundary', type:'line', source:'boundary', paint:{'line-color':'#4cc38a','line-width':2.5,'line-dasharray':[2,1.5]} });
+
+  // 3D-Gebäude (eigene Ebene, falls der Stil keine hat)
+  if(!style.layers.some(l=>l.type==='fill-extrusion')){
+    const vec = Object.keys(style.sources).find(k=>style.sources[k].type==='vector');
+    if(vec) map.addLayer({ id:'building-3d', type:'fill-extrusion', source:vec, 'source-layer':'building', minzoom:14,
+      paint:{'fill-extrusion-color':'#d6d2cc','fill-extrusion-height':['coalesce',['get','render_height'],8],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':.85} }, symbolId);
+  }
+  // Orte als Flächen bzw. farbige Gebäude
+  map.addLayer({ id:'area-fill', type:'fill', source:'poi-areas', filter:['!',['get','isBuilding']], paint:{'fill-color':['get','farbe'],'fill-opacity':.28,'fill-outline-color':['get','farbe']} }, symbolId);
+  map.addLayer({ id:'area-3d', type:'fill-extrusion', source:'poi-areas', filter:['get','isBuilding'], paint:{
+    'fill-extrusion-color':['get','farbe'],'fill-extrusion-height':['get','hoehe'],'fill-extrusion-opacity':.92 } });
+  map.addLayer({ id:'poi-halo', type:'circle', source:'pois', paint:{'circle-radius':['interpolate',['linear'],['zoom'],12,5,16,11],'circle-color':'#0b1118','circle-opacity':.55,'circle-blur':.6} });
+  map.addLayer({ id:'poi', type:'circle', source:'pois', paint:{
+    'circle-radius':['interpolate',['linear'],['zoom'],12,3.5,16,7.5],'circle-color':['get','farbe'],'circle-stroke-color':'#fff','circle-stroke-width':['interpolate',['linear'],['zoom'],12,1,16,2],
+    'circle-opacity':['case',['get','offen'],1,['==',['get','offen'],false],.55,1] } });
+  map.addLayer({ id:'poi-label', type:'symbol', source:'pois', minzoom:15.5, layout:{
+    'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':12,'text-offset':[0,1.1],'text-anchor':'top','text-optional':true},
+    paint:{'text-color':'#1b2430','text-halo-color':'#fff','text-halo-width':1.4} });
+
+  map.setTerrain({ source:'dem-terrain', exaggeration:1 });
+  try { map.setSky({ 'sky-color':'#7cb7e8','horizon-color':'#dcecf8','fog-color':'#dcecf8','sky-horizon-blend':.6,'horizon-fog-blend':.6,'fog-ground-blend':.4 }); } catch(e){}
+
+  bindMapEvents();
+  applyView();
+  loadData(false);
+});
+
+const RELIEF = [[0,'#1f7a5a'],[10,'#4fa86a'],[20,'#a6cf7a'],[30,'#f1e08f'],[40,'#e8b46a'],[50,'#cf8550'],[60,'#a8623f'],[80,'#7a4a36']];
+(function legend(){
+  $('legendBar').style.background = 'linear-gradient(90deg,'+RELIEF.map(([m,c],i)=>`${c} ${i/(RELIEF.length-1)*100}%`).join(',')+')';
+  $('legendTicks').innerHTML = [0,20,40,60,80].map(v=>`<span>${v} m</span>`).join('');
+})();
+
+/* ============ Daten ============ */
+function emptyFC(){ return {type:'FeatureCollection',features:[]}; }
+
+async function overpass(q){
+  let last;
+  for(const url of OVERPASS){
+    try{
+      const r = await fetch(url,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }catch(e){ last=e; }
+  }
+  throw last;
+}
+
+function buildPoiQuery(b){ // b = [W,S,E,N]
+  const bb = `${b[1]},${b[0]},${b[3]},${b[2]}`;
+  return `[out:json][timeout:90][bbox:${bb}];
+(
+ nwr["amenity"~"^(doctors|clinic|dentist|pharmacy|hospital|marketplace|cinema|library|arts_centre|community_centre|theatre|social_centre|cafe|ice_cream|restaurant|fast_food|kindergarten|childcare|school|bicycle_rental|charging_station|post_office|parcel_locker|bank|atm|public_bath)$"];
+ nwr["healthcare"~"^(doctor|dentist|pharmacy|physiotherapist|hospital)$"];
+ nwr["shop"~"^(mall|department_store|supermarket|bakery|chemist)$"];
+ nwr["leisure"~"^(fitness_centre|swimming_pool|water_park|swimming_area|sports_centre|sports_hall|stadium|pitch|track|playground|park|dog_park|miniature_golf|trampoline_park|ice_rink)$"];
+ nwr["club"="sport"];
+ nwr["railway"="station"];
+ node["highway"="bus_stop"];
+ way["landuse"="allotments"];
+);
+out geom;`;
+}
+const BOUNDARY_QUERY = `[out:json][timeout:60];rel["boundary"="administrative"]["admin_level"="10"]["name"="Farmsen-Berne"];out geom;`;
+
+async function loadData(force){
+  if(!force){
+    try{
+      const c = JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
+      if(c && Date.now()-c.t < CACHE_DAYS*864e5){ ingest(c.boundary,c.pois,c.t); return; }
+    }catch(e){}
+  }
+  try{
+    toast('Lade Stadtteilgrenze aus OpenStreetMap');
+    const bJson = await overpass(BOUNDARY_QUERY);
+    const bGeo = osmtogeojson(bJson).features.find(f=>/Polygon/.test(f.geometry.type)) || null;
+    const bbox = bGeo ? padBbox(geoBbox(bGeo), .012, .02) : FALLBACK_BBOX;
+    toast('Lade Orte aus OpenStreetMap (dauert ein paar Sekunden)');
+    const pJson = await overpass(buildPoiQuery(bbox));
+    const pois = osmtogeojson(pJson, {flatProperties:true}).features;
+    const t = Date.now();
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({t, boundary:bGeo, pois})); }catch(e){ /* zu groß oder gesperrt */ }
+    ingest(bGeo, pois, t);
+  }catch(e){
+    console.error(e);
+    toast('OpenStreetMap ist gerade nicht erreichbar. Später mit "Daten neu laden" erneut versuchen.');
+    setTimeout(()=>toast(null),7000);
+  }
+}
+
+function geoBbox(f){ let W=180,S=90,E=-180,N=-90; eachCoord(f.geometry,([x,y])=>{W=Math.min(W,x);E=Math.max(E,x);S=Math.min(S,y);N=Math.max(N,y);}); return [W,S,E,N]; }
+function padBbox(b,dy,dx){ return [b[0]-dx,b[1]-dy,b[2]+dx,b[3]+dy]; }
+function eachCoord(g,fn){ const walk=a=>typeof a[0]==='number'?fn(a):a.forEach(walk); walk(g.coordinates); }
+function centroid(g){
+  if(g.type==='Point') return g.coordinates;
+  let ring = g.type==='Polygon'?g.coordinates[0]:g.type==='MultiPolygon'?g.coordinates[0][0]:g.type==='LineString'?g.coordinates:null;
+  if(!ring){ const b=geoBbox({geometry:g}); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }
+  let x=0,y=0; ring.forEach(c=>{x+=c[0];y+=c[1];}); return [x/ring.length,y/ring.length];
+}
+function pointInRing(p,ring){ let ins=false; for(let i=0,j=ring.length-1;i<ring.length;j=i++){ const [xi,yi]=ring[i],[xj,yj]=ring[j]; if(((yi>p[1])!==(yj>p[1]))&&(p[0]<(xj-xi)*(p[1]-yi)/(yj-yi)+xi)) ins=!ins; } return ins; }
+function inBoundary(p){
+  const b=state.boundary; if(!b) return true;
+  const polys = b.geometry.type==='Polygon'?[b.geometry.coordinates]:b.geometry.coordinates;
+  return polys.some(poly=>pointInRing(p,poly[0])&&!poly.slice(1).some(h=>pointInRing(p,h)));
+}
+
+const OH_NOMINATIM = { lat:53.6064, lon:10.1186, address:{ country_code:'de', state:'Hamburg' } };
+function openState(tags){
+  if(!tags.opening_hours) return null;
+  if(tags.opening_hours.trim()==='24/7') return true;
+  try{ return new opening_hours(tags.opening_hours, OH_NOMINATIM, {locale:'de'}).getState(); }catch(e){ return null; }
+}
+
+function ingest(boundary, raw, t){
+  state.boundary = boundary;
+  const out = [];
+  for(const f of raw){
+    const tags = f.properties || {};
+    const kats = THEMEN.flatMap(th=>th.kats).filter(k=>{ try{return k.m(tags);}catch(e){return false;} }).map(k=>k.id);
+    if(!kats.length) continue;
+    const c = centroid(f.geometry);
+    out.push({ id:(tags.id||f.id||'').toString(), tags, kats, geom:f.geometry, c, inside:inBoundary(c),
+      name: tags.name || tags.brand || tags.operator || (EINZEL[kats[0]] || KAT[kats[0]].name)+' (ohne Namen)' });
+  }
+  state.features = out;
+  if(boundary){
+    map.getSource('boundary').setData(boundary);
+    const holes = boundary.geometry.type==='Polygon'?[boundary.geometry.coordinates[0]]:boundary.geometry.coordinates.map(p=>p[0]);
+    map.getSource('mask').setData({type:'Feature',geometry:{type:'Polygon',coordinates:[[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]],...holes]}});
+  }
+  $('stand').textContent = 'OSM-Stand: '+new Date(t).toLocaleDateString('de-DE')+', '+out.length+' Orte';
+  toast(null);
+  refresh();
+}
+
+/* ============ Filtern und Darstellen ============ */
+function primaryKat(f){ return f.kats.find(k=>state.active.has(k)); }
+function matches(f){
+  if(!primaryKat(f)) return false;
+  if(state.onlyInside && !f.inside) return false;
+  if(state.onlyOpen && openState(f.tags)!==true) return false;
+  if(state.query){
+    const q=state.query; const hay=(f.name+' '+(f.tags.brand||'')+' '+(f.tags.operator||'')+' '+f.kats.map(k=>KAT[k].name).join(' ')).toLowerCase();
+    if(!q.split(/\s+/).every(w=>hay.includes(w))) return false;
+  }
+  return true;
+}
+function countFor(katId){
+  return state.features.filter(f=>f.kats.includes(katId) && (!state.onlyInside||f.inside)).length;
+}
+
+function refresh(){
+  const vis = state.features.filter(matches);
+  const pts=[], areas=[];
+  for(const f of vis){
+    const k = KAT[primaryKat(f)], farbe = k.theme.farbe, offen = openState(f.tags);
+    const props = { fid:f.id, name:f.name, farbe, kat:k.name, offen };
+    pts.push({ type:'Feature', geometry:{type:'Point',coordinates:f.c}, properties:props });
+    if(/Polygon/.test(f.geom.type)){
+      const lv = parseFloat(f.tags['building:levels']); const h = parseFloat(f.tags.height);
+      const isBuilding = !!f.tags.building && f.tags.building!=='no';
+      areas.push({ type:'Feature', geometry:f.geom, properties:{...props, isBuilding, hoehe: h||(lv?lv*3.2:isBuilding?12:0)} });
+    }
+  }
+  if(map.getSource('pois')){
+    map.getSource('pois').setData({type:'FeatureCollection',features:pts});
+    map.getSource('poi-areas').setData({type:'FeatureCollection',features:areas});
+  }
+  renderThemes(); renderList(vis);
+}
+
+function renderPresets(){
+  $('presets').innerHTML = PRESETS.map((p,i)=>`<button class="preset" data-i="${i}">${esc(p.name)}</button>`).join('');
+  $('presets').onclick = e=>{ const b=e.target.closest('.preset'); if(!b) return; state.active=new Set(PRESETS[b.dataset.i].kats);
+    PRESETS[b.dataset.i].kats.forEach(k=>state.openThemes.add(KAT[k].theme.id)); refresh(); };
+}
+function renderThemes(){
+  $('themes').innerHTML = THEMEN.map(th=>{
+    const on = th.kats.filter(k=>state.active.has(k.id)).length;
+    const total = th.kats.reduce((s,k)=>s+countFor(k.id),0);
+    return `<div class="theme ${state.openThemes.has(th.id)?'open':''}" data-th="${th.id}">
+      <div class="theme-head"><span class="dot" style="background:${th.farbe}"></span><b>${esc(th.name)}</b><span class="cnt">${total} Orte</span><span class="chev">›</span></div>
+      <div class="theme-body">${th.kats.map(k=>{ const n=countFor(k.id);
+        return `<button class="chip ${state.active.has(k.id)?'on':''} ${n?'':'zero'}" style="--c:${th.farbe}" data-k="${k.id}">${esc(k.name)} <em>${n}</em></button>`; }).join('')}
+        <button class="chip" style="--c:${th.farbe}" data-all="${th.id}">alle</button></div></div>`;
+  }).join('');
+}
+$('themes').addEventListener('click', e=>{
+  const chip=e.target.closest('.chip'), head=e.target.closest('.theme-head');
+  if(chip){
+    if(chip.dataset.all){ const th=THEMEN.find(t=>t.id===chip.dataset.all); const allOn=th.kats.every(k=>state.active.has(k.id)); th.kats.forEach(k=>allOn?state.active.delete(k.id):state.active.add(k.id)); }
+    else { const k=chip.dataset.k; state.active.has(k)?state.active.delete(k):state.active.add(k); }
+    refresh();
+  } else if(head){ const id=head.parentElement.dataset.th; state.openThemes.has(id)?state.openThemes.delete(id):state.openThemes.add(id); renderThemes(); }
+});
+
+function dist(a,b){ const dx=(a[0]-b[0])*Math.cos(b[1]*Math.PI/180)*111320, dy=(a[1]-b[1])*110540; return Math.hypot(dx,dy); }
+function fmtDist(m){ return m<1000? Math.round(m/10)*10+' m' : (m/1000).toFixed(1).replace('.',',')+' km'; }
+let lastVis=[];
+function renderList(vis){
+  lastVis = vis || lastVis;
+  const c = map.getCenter().toArray();
+  const items = lastVis.map(f=>({f,d:dist(f.c,c)})).sort((a,b)=>a.d-b.d).slice(0,80);
+  $('listTitle').textContent = lastVis.length ? `${lastVis.length} Orte, sortiert nach Nähe zur Kartenmitte` : 'Keine Orte';
+  $('list').innerHTML = items.length ? items.map(({f,d})=>{
+    const k=KAT[primaryKat(f)], o=openState(f.tags);
+    const oh = o===true?'<span class="open-yes">geöffnet</span>':o===false?'<span class="open-no">geschlossen</span>':'';
+    return `<div class="item" data-id="${esc(f.id)}"><span class="dot" style="background:${k.theme.farbe}"></span><div><b>${esc(f.name)}</b><small>${esc(k.name)} | ${fmtDist(d)}${oh?' | '+oh:''}${f.inside?'':' | Umgebung'}</small></div></div>`;
+  }).join('') : `<p class="muted">${state.features.length?'Wähle oben Themen aus oder ändere die Suche.':'Daten werden geladen.'}</p>`;
+}
+$('list').addEventListener('click', e=>{ const it=e.target.closest('.item'); if(!it) return; const f=state.features.find(x=>x.id===it.dataset.id); if(f) focusFeature(f); });
+
+function focusFeature(f){
+  map.flyTo({ center:f.c, zoom:Math.max(map.getZoom(),17), pitch:55, speed:1.2 });
+  showPopup(f);
+  if(window.innerWidth<=760) $('panel').classList.add('min');
+}
+let popup;
+function showPopup(f){
+  const k=KAT[primaryKat(f)||f.kats[0]], t=f.tags, o=openState(t);
+  const addr=[ [t['addr:street'],t['addr:housenumber']].filter(Boolean).join(' '), [t['addr:postcode'],t['addr:city']].filter(Boolean).join(' ') ].filter(Boolean).join(', ');
+  const web=t.website||t['contact:website'], tel=t.phone||t['contact:phone'];
+  const osmId = String(f.id||''); const osmUrl = /^(node|way|relation)\/\d+$/.test(osmId)?`https://www.openstreetmap.org/${osmId}`:null;
+  const extra = f.kats.filter(x=>x!==k.id).map(x=>KAT[x].name).join(', ');
+  const html = `<div class="pop"><span class="tag" style="background:${k.theme.farbe}">${esc(k.name)}</span><h4>${esc(f.name)}</h4>
+    ${extra?`<div class="muted">auch: ${esc(extra)}</div>`:''}
+    ${addr?`<div>${esc(addr)}</div>`:''}
+    ${t.opening_hours?`<div>${o===true?'<b class="open-yes">Jetzt geöffnet</b>':o===false?'<b class="open-no">Jetzt geschlossen</b>':''}<br><span class="muted">${esc(t.opening_hours)}</span></div>`:''}
+    ${t.sport?`<div class="muted">Sport: ${esc(t.sport.replace(/;/g,', '))}</div>`:''}
+    ${tel?`<div>Tel. ${esc(tel)}</div>`:''}
+    ${web?`<div><a href="${esc(web.startsWith('http')?web:'https://'+web)}" target="_blank" rel="noopener">Website</a></div>`:''}
+    ${osmUrl?`<div><a href="${osmUrl}" target="_blank" rel="noopener">In OpenStreetMap ansehen</a></div>`:''}
+    <div class="muted">${f.inside?'in Farmsen-Berne':'Umgebung von Farmsen-Berne'}</div></div>`;
+  popup && popup.remove();
+  popup = new maplibregl.Popup({offset:12,maxWidth:'300px'}).setLngLat(f.c).setHTML(html).addTo(map);
+}
+
+/* ============ Ansichten und Ebenen ============ */
+function vis(id,on){ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',on?'visible':'none'); }
+function applyView(){
+  const v=state.view;
+  vis('sat', v==='satellit'); vis('topo', v==='topo'); vis('relief', v==='hoehe');
+  const contours = $('tContours').checked || v==='topo' || v==='hoehe';
+  const shade = $('tHillshade').checked || v==='hoehe';
+  if(v==='topo'||v==='hoehe'){ $('tContours').checked=true; }
+  vis('contour-lines',contours); vis('contour-labels',contours); vis('hillshade',shade);
+  $('legend').style.display = v==='hoehe' ? 'block':'none';
+  applyBuildings();
+}
+function applyBuildings(){
+  const on=$('tBuildings').checked;
+  map.getStyle().layers.filter(l=>l.type==='fill-extrusion' && l.source!=='poi-areas').forEach(l=>vis(l.id,on));
+  vis('area-3d',$('tAreas').checked); vis('area-fill',$('tAreas').checked);
+  vis('mask',$('tMask').checked); vis('boundary',$('tMask').checked);
+}
+$('views').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; state.view=b.dataset.view;
+  [...$('views').children].forEach(x=>x.classList.toggle('on',x===b)); applyView(); });
+['tBuildings','tAreas','tMask'].forEach(id=>$(id).addEventListener('change',applyBuildings));
+$('tContours').addEventListener('change',()=>{ const on=$('tContours').checked; vis('contour-lines',on); vis('contour-labels',on); });
+$('tHillshade').addEventListener('change',()=>vis('hillshade',$('tHillshade').checked));
+$('exaggeration').addEventListener('input',e=>{ state.exaggeration=+e.target.value; $('exVal').textContent=String(state.exaggeration).replace('.',',')+'x';
+  map.setTerrain({source:'dem-terrain',exaggeration:state.exaggeration}); if(state.exaggeration>1 && map.getPitch()<45) map.easeTo({pitch:60}); });
+$('b3d').onclick=()=>map.easeTo({pitch:60,bearing:-18,duration:900});
+$('b2d').onclick=()=>map.easeTo({pitch:0,bearing:0,duration:900});
+$('bHome').onclick=()=>map.flyTo({...HOME,speed:1.1});
+$('bReload').onclick=()=>loadData(true);
+
+/* ============ UI-Ereignisse ============ */
+document.querySelector('.tabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  $('tab-orte').hidden = b.dataset.tab!=='orte'; $('tab-karte').hidden = b.dataset.tab!=='karte'; $('panel').classList.remove('min'); });
+let qT; $('search').addEventListener('input',e=>{ clearTimeout(qT); qT=setTimeout(()=>{ state.query=e.target.value.trim().toLowerCase();
+  if(state.query){ // Suche findet Orte auch in ausgeschalteten Kategorien
+    THEMEN.forEach(th=>th.kats.forEach(k=>{ if(k.name.toLowerCase().includes(state.query)) state.active.add(k.id); }));
+    const hit = state.features.filter(f=>(f.name+' '+(f.tags.brand||'')).toLowerCase().includes(state.query));
+    hit.forEach(f=>{ if(!primaryKat(f)) state.active.add(f.kats[0]); });
+  }
+  refresh(); },200); });
+$('onlyOpen').addEventListener('change',e=>{ state.onlyOpen=e.target.checked; refresh(); });
+$('onlyInside').addEventListener('change',e=>{ state.onlyInside=e.target.checked; refresh(); });
+$('mobileToggle').onclick=()=>$('panel').classList.toggle('min');
+
+function bindMapEvents(){
+  map.on('click','poi',e=>{ const id=e.features[0].properties.fid; const f=state.features.find(x=>x.id===id); if(f) showPopup(f); });
+  map.on('click','area-3d',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['poi']}).length) return; const f=state.features.find(x=>x.id===e.features[0].properties.fid); if(f) showPopup(f); });
+  ['poi','area-3d'].forEach(l=>{ map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave',l,()=>map.getCanvas().style.cursor=''); });
+  let raf=0;
+  const showElev = ll => { cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{
+    let h=null; try{ h=map.queryTerrainElevation(ll); }catch(e){}
+    $('elev').textContent = (h==null||isNaN(h)||h===0) ? 'lädt' : (h/state.exaggeration).toFixed(1).replace('.',',')+' m ü. NHN';
+    $('coord').textContent = ll.lat.toFixed(5)+', '+ll.lng.toFixed(5);
+  }); };
+  map.on('mousemove',e=>showElev(e.lngLat));
+  map.on('click',e=>showElev(e.lngLat));
+  let mT; map.on('moveend',()=>{ clearTimeout(mT); mT=setTimeout(()=>renderList(),150); });
+}
+
+renderPresets(); renderThemes(); renderList([]);
+setInterval(()=>{ if(state.features.length) refresh(); }, 5*60*1000); // Öffnungsstatus aktuell halten
+</script>
+</body>
+</html>
