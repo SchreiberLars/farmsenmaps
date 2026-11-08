@@ -12,3 +12,5 @@ Live: https://schreiberlars.github.io/farmsenmaps/
 - Höhendaten: Mapzen Terrarium (AWS Terrain Tiles)
 - Routing: FOSSGIS OSRM (routing.openstreetmap.de)
 - Flugzeuge live: adsb.lol (ODbL), Ersatz: OpenSky Network
+- Luftbilder Zeitreihe und historische Karten: © Freie und Hansestadt Hamburg, LGV (dl-de/by-2.0)
+- Einwohnerzahlen: Statistisches Amt für Hamburg und Schleswig-Holstein
