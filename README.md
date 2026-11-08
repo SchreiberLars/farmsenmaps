@@ -14,3 +14,4 @@ Live: https://schreiberlars.github.io/farmsenmaps/
 - Flugzeuge live: adsb.lol (ODbL), Ersatz: OpenSky Network
 - Luftbilder Zeitreihe und historische Karten: © Freie und Hansestadt Hamburg, LGV (dl-de/by-2.0)
 - Einwohnerzahlen: Statistisches Amt für Hamburg und Schleswig-Holstein
+- Wetter und Klima: Open-Meteo.com (CC BY 4.0), ERA5
