@@ -226,7 +226,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="theme open"><div class="theme-head" id="histHead"><span class="dot" style="background:#e0a63a"></span><b>Trabrennbahn Farmsen</b><span class="cnt">1911 bis heute</span></div>
         <div style="padding:0 12px 12px">
           <p class="small" style="margin:0 0 8px">Von der Ziegelei zur Rennbahn, die zu den bedeutendsten Deutschlands gehörte, und weiter zum Wohnpark, dessen Häuser bis heute das Oval nachzeichnen.</p>
-          <div class="btns" style="margin-bottom:8px"><button class="btn" id="histShow">Auf der Karte zeigen</button></div>
+          <div class="btns" style="margin-bottom:8px"><button class="btn" id="histShow">Auf der Karte zeigen</button><button class="btn" id="histEdit">Position anpassen</button></div>
+          <div id="histEditInfo" class="small" style="display:none;margin-bottom:10px"></div>
           <div id="histTimeline"></div>
         </div></div>
     </div>
@@ -948,7 +949,7 @@ const HIST = [{ id:'trabrennbahn', name:'Ehemalige Trabrennbahn', street:'Max-He
   quellen:[['Wikipedia: Trabrennbahn Farmsen','https://de.wikipedia.org/wiki/Trabrennbahn_Farmsen'],['Die Linie U1: Trabrennbahn','https://fredriks.de/hvv/u1/u1-3.php?f=WK'],
    ['Italienische Militärinternierte in Farmsen','https://blog.holgerartus.eu/2021/05/29/700-italienische-militaerinternierte-in-der-trabrennbahn-farmsen/'],
    ['Terrain-Gesellschaft Hamburg-Farmsen','https://www.historische-wertpapiere.de/de/hsk-auktion-xvii/?AID=4882&AKTIE=Terrain-Gesellschaft+Hamburg-Farmsen+mbH']] }];
-const HIST_KEY='farmsen-hist-v1';
+const HIST_KEY='farmsen-hist-v1', HIST_POS_KEY='farmsen-hist-pos';
 async function loadHistory(){
   let lines=null;
   try{ const c=JSON.parse(localStorage.getItem(HIST_KEY)||'null'); if(c && Date.now()-c.t<30*864e5) lines=c.lines; }catch(e){}
@@ -964,6 +965,7 @@ async function loadHistory(){
     const pts=lines.flat(); h.c=[pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
     map.getSource('hist-line').setData({type:'FeatureCollection',features:lines.map(l=>({type:'Feature',geometry:{type:'LineString',coordinates:l},properties:{}}))});
   } else h.c=h.fallback;
+  try{ const o=JSON.parse(localStorage.getItem(HIST_POS_KEY)||'{}'); HIST.forEach(x=>{ if(o[x.id]) x.c=o[x.id]; }); }catch(e){}
   map.getSource('hist').setData({type:'FeatureCollection',features:HIST.map(x=>({type:'Feature',geometry:{type:'Point',coordinates:x.c},properties:{id:x.id,name:x.name}}))});
 }
 function renderHistTimeline(){
@@ -987,6 +989,33 @@ function showHist(){
 document.addEventListener('click',e=>{ const b=e.target.closest('[data-histopen]'); if(!b) return;
   document.querySelector('.tabs button[data-tab="zeit"]').click(); $('tab-zeit').scrollTop=0; });
 $('histShow').onclick=showHist;
+let histMarker=null;
+function setHistPos(ll){
+  const h=HIST[0]; h.c=[+ll.lng.toFixed(6),+ll.lat.toFixed(6)];
+  try{ const o=JSON.parse(localStorage.getItem(HIST_POS_KEY)||'{}'); o[h.id]=h.c; localStorage.setItem(HIST_POS_KEY,JSON.stringify(o)); }catch(e){}
+  histMarker && histMarker.setLngLat(h.c);
+  map.getSource('hist').setData({type:'FeatureCollection',features:HIST.map(x=>({type:'Feature',geometry:{type:'Point',coordinates:x.c},properties:{id:x.id,name:x.name}}))});
+  const txt=`${h.c[1]}, ${h.c[0]}`;
+  $('histEditInfo').innerHTML=`Gespeichert in diesem Browser: <b>${txt}</b> <button class="btn" id="histCopy" style="padding:3px 8px;margin-left:4px">Kopieren</button><br><span class="muted">Schick die Koordinaten an Claude, dann wird der Punkt für alle fest eingetragen.</span>`;
+  $('histCopy').onclick=()=>{ try{ navigator.clipboard.writeText(txt); $('histCopy').textContent='Kopiert'; }catch(e){} };
+}
+function histMapClick(e){ setHistPos(e.lngLat); }
+$('histEdit').onclick=()=>{
+  const h=HIST[0]; if(!h.c) return;
+  if(histMarker){ // fertig
+    histMarker.remove(); histMarker=null; map.off('click',histMapClick); vis('hist',true); $('histEdit').textContent='Position anpassen'; return;
+  }
+  popup && popup.remove();
+  map.flyTo({center:h.c,zoom:Math.max(map.getZoom(),16),pitch:0,speed:1.2});
+  const el=document.createElement('div'); el.style.cssText='width:26px;height:26px;border-radius:50%;background:#e0a63a;border:3px solid #fff;box-shadow:0 0 0 4px rgba(224,166,58,.35),0 4px 12px rgba(0,0,0,.4);cursor:grab';
+  histMarker=new maplibregl.Marker({element:el,draggable:true}).setLngLat(h.c).addTo(map);
+  histMarker.on('dragend',()=>setHistPos(histMarker.getLngLat()));
+  map.on('click',histMapClick); vis('hist',false);
+  $('histEdit').textContent='Fertig';
+  $('histEditInfo').style.display='block';
+  $('histEditInfo').innerHTML='<span class="muted">Marker ziehen oder auf die gewünschte Stelle der Karte tippen.</span>';
+  if(window.innerWidth<=760) $('panel').classList.add('min');
+};
 $('tHist').addEventListener('change',e=>['hist','hist-line','hist-label'].forEach(id=>vis(id,e.target.checked)));
 renderHistTimeline();
 
