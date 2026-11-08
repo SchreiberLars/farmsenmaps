@@ -31,6 +31,11 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-famil
 .cmpsel label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .cmpsel select{background:#1a2430;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px}
 .small{font-size:12px}
+.pop.long{max-height:52vh;overflow:auto;padding-right:4px}
+.pop .fact{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:4px 0}
+.pop .fact span:first-child{color:var(--muted)}
+.pop .fact span:last-child{text-align:right}
+.pop p{margin:8px 0;font-size:13px;line-height:1.45}
 .tl{border-left:2px solid rgba(224,166,58,.5);margin-left:4px;padding-left:12px}
 .tl div{position:relative;margin:0 0 10px;font-size:12.5px;line-height:1.45}
 .tl div:before{content:"";position:absolute;left:-17px;top:5px;width:8px;height:8px;border-radius:50%;background:#e0a63a}
@@ -186,6 +191,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="row"><div>Nur in Farmsen-Berne<small>sonst inkl. Umgebung</small></div><label class="switch"><input type="checkbox" id="onlyInside"><i></i></label></div>
     </div>
     <div class="section"><h3>Themen</h3><div id="themes"></div></div>
+    <div class="section"><h3>Gewässer im Stadtteil</h3><div id="waterList"><p class="muted small">Gewässer werden geladen.</p></div>
+      <p class="muted small">Jedes Gewässer auf der Karte lässt sich antippen.</p></div>
     <div class="section"><h3 id="listTitle">In der Nähe</h3><div class="list" id="list"></div></div>
   </div>
 
@@ -203,6 +210,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="row"><div>Gebäude der Orte einfärben<small>gefilterte Orte als farbige Gebäude</small></div><label class="switch"><input type="checkbox" id="tAreas" checked><i></i></label></div>
       <div class="row"><div>Höhenlinien</div><label class="switch"><input type="checkbox" id="tContours"><i></i></label></div>
       <div class="row"><div>Schummerung<small>Geländeschatten</small></div><label class="switch"><input type="checkbox" id="tHillshade"><i></i></label></div>
+      <div class="row"><div>Gewässer-Infos<small>Seen, Teiche und Bäche antippbar</small></div><label class="switch"><input type="checkbox" id="tWater" checked><i></i></label></div>
       <div class="row"><div>Geschichte<small>historische Orte mit Chronik</small></div><label class="switch"><input type="checkbox" id="tHist" checked><i></i></label></div>
       <div class="row"><div>Flugzeuge live<small id="planeInfo">ADS-B, alle 10 Sekunden</small></div><label class="switch"><input type="checkbox" id="tPlanes"><i></i></label></div>
       <div class="row"><div>Stadtteil hervorheben</div><label class="switch"><input type="checkbox" id="tMask" checked><i></i></label></div>
@@ -430,6 +438,10 @@ map.on('load', () => {
 
   // Flugzeuge
   map.addImage('plane', planeImage());
+  map.addSource('water', { type:'geojson', data:emptyFC() });
+  map.addLayer({ id:'water-fill', type:'fill', source:'water', filter:['==',['geometry-type'],'Polygon'], paint:{'fill-color':'#3b82f6','fill-opacity':['case',['get','kuratiert'],.28,.12],'fill-outline-color':'#3b82f6'} }, symbolId);
+  map.addLayer({ id:'water-line', type:'line', source:'water', filter:['==',['geometry-type'],'LineString'], layout:{'line-cap':'round'}, paint:{'line-color':'#3b82f6','line-width':['interpolate',['linear'],['zoom'],12,1.5,16,4],'line-opacity':.7} }, symbolId);
+  map.addLayer({ id:'water-hit', type:'line', source:'water', filter:['==',['geometry-type'],'LineString'], paint:{'line-color':'#000','line-opacity':0,'line-width':16} });
   map.addSource('hist', { type:'geojson', data:emptyFC() });
   map.addSource('hist-line', { type:'geojson', data:emptyFC() });
   map.addLayer({ id:'hist-line', type:'line', source:'hist-line', layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#e0a63a','line-width':['interpolate',['linear'],['zoom'],13,2,17,5],'line-opacity':.85} });
@@ -447,7 +459,7 @@ map.on('load', () => {
   try { map.setSky({ 'sky-color':'#7cb7e8','horizon-color':'#dcecf8','fog-color':'#dcecf8','sky-horizon-blend':.6,'horizon-fog-blend':.6,'fog-ground-blend':.4 }); } catch(e){}
 
   bindMapEvents();
-  loadHistory();
+  histPromise=loadHistory();
   applyView();
   loadData(false);
 });
@@ -556,6 +568,7 @@ function ingest(boundary, raw, t){
     map.getSource('mask').setData({type:'Feature',geometry:{type:'Polygon',coordinates:[[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]],...holes]}});
   }
   renderAusstattung();
+  state.bbox = boundary ? padBbox(geoBbox(boundary), .012, .02) : FALLBACK_BBOX; loadWater();
   if(mapL && boundary && mapL.getSource('b')) mapL.getSource('b').setData(boundary);
   $('stand').textContent = 'OSM-Stand: '+new Date(t).toLocaleDateString('de-DE')+', '+out.length+' Orte';
   toast(null);
@@ -949,6 +962,7 @@ const HIST = [{ id:'trabrennbahn', name:'Ehemalige Trabrennbahn', street:'Max-He
   quellen:[['Wikipedia: Trabrennbahn Farmsen','https://de.wikipedia.org/wiki/Trabrennbahn_Farmsen'],['Die Linie U1: Trabrennbahn','https://fredriks.de/hvv/u1/u1-3.php?f=WK'],
    ['Italienische Militärinternierte in Farmsen','https://blog.holgerartus.eu/2021/05/29/700-italienische-militaerinternierte-in-der-trabrennbahn-farmsen/'],
    ['Terrain-Gesellschaft Hamburg-Farmsen','https://www.historische-wertpapiere.de/de/hsk-auktion-xvii/?AID=4882&AKTIE=Terrain-Gesellschaft+Hamburg-Farmsen+mbH']] }];
+let histPromise=Promise.resolve();
 const HIST_KEY='farmsen-hist-v1', HIST_POS_KEY='farmsen-hist-pos';
 async function loadHistory(){
   let lines=null;
@@ -960,7 +974,7 @@ async function loadHistory(){
       try{ localStorage.setItem(HIST_KEY,JSON.stringify({t:Date.now(),lines})); }catch(e){}
     }catch(e){ lines=[]; }
   }
-  const h=HIST[0];
+  const h=HIST[0]; HIST_LINES=lines;
   if(lines.length){
     const pts=lines.flat(); h.c=[pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
     map.getSource('hist-line').setData({type:'FeatureCollection',features:lines.map(l=>({type:'Feature',geometry:{type:'LineString',coordinates:l},properties:{}}))});
@@ -1018,6 +1032,101 @@ $('histEdit').onclick=()=>{
 };
 $('tHist').addEventListener('change',e=>['hist','hist-line','hist-label'].forEach(id=>vis(id,e.target.checked)));
 renderHistTimeline();
+
+/* ============ Gewässer ============ */
+const GEW = [
+ { id:'strandbad', name:'Strandbad Farmsen (Sommerbad)', pt:[10.10835,53.616177], re:/strandbad|sommerbad/i,
+   facts:[['Art','künstlich, ehemalige Tongrube'],['Entstanden','1928'],['Fläche','ca. 17.000 m²'],['Länge x Breite','170 x 90 m'],['Größte Tiefe','8,2 m'],['Mittlere Tiefe','3,5 m'],['Wassermenge','ca. 60.000 m³'],['Baden','ja, Strandbad mit Badeaufsicht'],['Wasserqualität','ausgezeichnet (EU-Einstufung)']],
+   text:['Der See ist seit 1928 Badesee. Er hat keinen Zu- oder Abfluss und wird von Regen und Grundwasser gespeist, dazu von eisenhaltigen Quellen und Drainagerohren am Ufer, deren Herkunft unbekannt ist. Bei Hochwasser läuft er nach Südwesten in die Osterbek über.',
+     'Der See ist im Sommer geschichtet, das Tiefenwasser ist oft ohne Sauerstoff. Seit 1993 pumpt eine Anlage (Pelicon) phosphorreiches Tiefenwasser an Land, reinigt es und leitet es zurück. Das bremst Algenwachstum.',
+     'Im Wasser wachsen dichte Unterwasserwiesen, u. a. Tausendblatt, Hornblatt und Wasserschlauch. Taucher schneiden sie jedes Jahr zurück. Es gibt Fische, welche genau, ist nicht dokumentiert. Außerhalb der Badesaison angelt eine Anglergruppe. Am See leben viele Gänse.',
+     'Pro Saison kommen 40.000 bis 50.000 Badegäste. Gemessen wurden Wassertemperaturen von 11 bis 26 °C. Am Ostufer liegt ein 200 m langer Sandstrand, dazu gibt es eine 50 m lange Rutsche. Betreiber ist der Verein Strandbad Farmsen e.V., Eigentümer die Stadt Hamburg.'],
+   quellen:[['Badegewässerprofil der Stadt Hamburg','https://www.hamburg.de/resource/blob/174238/1ccf30dfbb46efee2456965475711ac5/d-profil-sommerbadfarmsen-data.pdf'],['hamburg.de: Sommerbad Farmsen','https://www.hamburg.de/politik-und-verwaltung/behoerden/bukea/themen/wasser/badegewaesser/sommerbad-farmsen-174134']] },
+ { id:'kupferteich', name:'Kupferteich', re:/kupfer/i,
+   facts:[['Art','künstlich aufgestaut'],['Gespeist von','Berner Au'],['Baden','nein'],['Tiefe','nicht veröffentlicht']],
+   text:['Die Berner Au wird hier kurz vor ihrer Mündung in die Wandse zu einem Teich aufgestaut. Der Name geht auf eine Kupfermühle zurück: Von etwa 1480 bis Ende des 18. Jahrhunderts wurden hier Bleche und Drähte aus Kupfer hergestellt. Daran erinnert auch der Straßenname Kupferdamm.',
+     'Vermutlich floss die Berner Au früher nach Westen zur Osterbek. Ihr heutiger Unterlauf wurde wohl für die Mühle durch einen Durchstich angelegt.'],
+   quellen:[['hamburg.de: Farmsen-Berne','https://www.hamburg.de/leben-in-hamburg/bezirke-hamburg/stadtteile-bezirk-wandsbek/farmsen-berne-376522'],['Wikipedia: Berner Au','https://de.wikipedia.org/wiki/Berner_Au']] },
+ { id:'rhb', name:'Rückhaltebecken Berner Au', re:/(rückhalte|rhb).*bern|bern.*(rückhalte|rhb)/i,
+   facts:[['Art','künstlich, Hochwasserrückhalt'],['Gespeist von','Berner Au'],['Baden','nein'],['Tiefe','nicht veröffentlicht']],
+   text:['Das Becken fängt bei Starkregen Wasser der Berner Au auf und gibt es langsam wieder ab. Es ist zugleich ein beliebter Ort für Spaziergänge, mit Blick über das Wasser.',
+     'Angler berichten von Barsch, Rotauge, Rotfeder, Hecht und Aal. Diese Angaben stammen aus einer Angler-App, nicht aus amtlichen Erhebungen. Ob hier geangelt werden darf, ist umstritten. Verbindlich ist die Auskunft des Bezirksamts Wandsbek.'],
+   quellen:[['alleangeln.de (Nutzerangaben)','https://www.alleangeln.de/gewaesser/rhb-berner-au']] },
+ { id:'ziegelteiche', name:'Ziegelteiche an der Trabrennbahn', re:/ziegel/i, oval:true,
+   facts:[['Art','künstlich, alte Lehmgruben'],['Entstanden','vor 1910, Ziegelei'],['Baden','nein']],
+   text:['Die Teiche im Innenhof des Wohnparks Trabrennbahn sind Reste der Ziegelei, die hier seit dem 17. Jahrhundert Lehm abbaute. Beim Bau der Wohnanlage blieben sie zusammen mit den alten Bäumen erhalten. Hier leben Wildgänse.'],
+   quellen:[['hamburg.de: Farmsen-Berne','https://www.hamburg.de/leben-in-hamburg/bezirke-hamburg/stadtteile-bezirk-wandsbek/farmsen-berne-376522']] },
+ { id:'ostender', name:'Ostender Teich', re:/ostender/i,
+   facts:[['Art','Teich an der Wandse'],['Lage','Grenze zu Tonndorf']],
+   text:['Nördlich des Ostender Teichs mündet die Berner Au in die Wandse. Das Wasser fließt weiter über die Alster in die Elbe.'],
+   quellen:[['Wikipedia: Berner Au','https://de.wikipedia.org/wiki/Berner_Au']] },
+ { id:'bernerau', name:'Berner Au', re:/^berner au$/i, line:true,
+   facts:[['Art','Bach, natürlich'],['Länge','8,3 km'],['Quelle','Wiesen in Volksdorf'],['Mündung','Wandse am Ostender Teich'],['Weiter über','Wandse, Alster, Elbe']],
+   text:['Die Berner Au hat keine eindeutige Quelle, sie sammelt sich in einem Wiesengebiet südlich des Saseler Wegs in Volksdorf. Sie fließt nach Südwesten durch Sasel und Farmsen-Berne. Zuflüsse sind unter anderem der Deepenhorngraben und der Karlshöher Graben.',
+     'Der Stadtteil hat ihr seinen Namen zu verdanken: Berne kommt von Baren, das bedeutet Bachlauf. Früher trieb sie mehrere Mühlen an. Entlang des Bachs kann man von der U-Bahn Trabrennbahn bis nach Volksdorf wandern.'],
+   quellen:[['Wikipedia: Berner Au','https://de.wikipedia.org/wiki/Berner_Au'],['hamburg.de: Farmsen-Berne','https://www.hamburg.de/leben-in-hamburg/bezirke-hamburg/stadtteile-bezirk-wandsbek/farmsen-berne-376522']] } ];
+const WATER_KEY='farmsen-water-v1'; let WATER=[], HIST_LINES=[];
+function ringArea(r){ // m², equirektangulär
+  const lat0=r[0][1]*Math.PI/180, kx=111320*Math.cos(lat0), ky=110540; let a=0;
+  for(let i=0,j=r.length-1;i<r.length;j=i++) a+=(r[j][0]*kx)*(r[i][1]*ky)-(r[i][0]*kx)*(r[j][1]*ky);
+  return Math.abs(a/2);
+}
+function lineLen(c){ let l=0; for(let i=1;i<c.length;i++) l+=dist(c[i],c[i-1]); return l; }
+function polyArea(g){ const P=g.type==='Polygon'?[g.coordinates]:g.coordinates; return P.reduce((s,p)=>s+ringArea(p[0])-p.slice(1).reduce((h,r)=>h+ringArea(r),0),0); }
+function inPoly(pt,g){ const P=g.type==='Polygon'?[g.coordinates]:g.coordinates; return P.some(p=>pointInRing(pt,p[0])); }
+async function loadWater(){
+  if(WATER.length) return;
+  let raw=null;
+  try{ const c=JSON.parse(localStorage.getItem(WATER_KEY)||'null'); if(c && Date.now()-c.t<7*864e5) raw=c.f; }catch(e){}
+  if(!raw){
+    const b=state.bbox, bb=`${b[1]},${b[0]},${b[3]},${b[2]}`;
+    try{
+      const j=await overpass(`[out:json][timeout:60][bbox:${bb}];(way["natural"="water"];relation["natural"="water"];way["waterway"~"^(river|stream)$"];);out geom;`);
+      raw=osmtogeojson(j,{flatProperties:true}).features.filter(f=>/Polygon|LineString/.test(f.geometry.type));
+      try{ localStorage.setItem(WATER_KEY,JSON.stringify({t:Date.now(),f:raw})); }catch(e){}
+    }catch(e){ $('waterList').innerHTML='<p class="muted small">Gewässer gerade nicht abrufbar.</p>'; return; }
+  }
+  await histPromise;
+  const ovalBox=HIST_LINES.length?geoBbox({geometry:{type:'MultiLineString',coordinates:HIST_LINES}}):null;
+  WATER=raw.map((f,i)=>{
+    const t=f.properties||{}, g=f.geometry, isLine=/LineString/.test(g.type), c=centroid(g.type==='MultiLineString'?{type:'LineString',coordinates:g.coordinates[0]}:g.type==='MultiPolygon'?g:g);
+    const name=t.name||'';
+    let k=GEW.find(x=> (x.line?isLine:!isLine) && ((name && x.re.test(name)) || (x.pt && !isLine && inPoly(x.pt,g)) || (x.oval && ovalBox && !isLine && c[0]>ovalBox[0]&&c[0]<ovalBox[2]&&c[1]>ovalBox[1]&&c[1]<ovalBox[3])));
+    return { wid:'w'+i, name, tags:t, geom:g, isLine, c, k, area:isLine?0:polyArea(g),
+      len:isLine?(g.type==='LineString'?lineLen(g.coordinates):g.coordinates.reduce((s,l)=>s+lineLen(l),0)):0, inside:inBoundary(c) };
+  });
+  map.getSource('water').setData({type:'FeatureCollection',features:WATER.map(w=>({type:'Feature',geometry:w.isLine?(w.geom.type==='MultiLineString'?w.geom:w.geom):w.geom,properties:{wid:w.wid,kuratiert:!!w.k}}))});
+  renderWaterList();
+}
+function renderWaterList(){
+  const rows=GEW.map(k=>{ const ws=WATER.filter(w=>w.k===k); return {k,ws}; }).filter(r=>r.ws.length);
+  const ohne=WATER.filter(w=>!w.k&&!w.isLine&&w.inside).length;
+  $('waterList').innerHTML=rows.map(({k,ws})=>`<div class="item" data-gew="${k.id}"><span class="dot" style="background:#3b82f6"></span><div><b>${esc(k.name)}</b><small>${esc(k.facts[0][1])}</small></div></div>`).join('')
+    +(ohne?`<p class="muted small">Dazu ${ohne} ${ohne===1?'weiterer Teich':'weitere Teiche'} ohne Detailinfos.</p>`:'');
+}
+$('waterList').addEventListener('click',e=>{ const it=e.target.closest('[data-gew]'); if(!it) return;
+  const ws=WATER.filter(w=>w.k&&w.k.id===it.dataset.gew); if(!ws.length) return;
+  const w=ws.reduce((a,b)=>(b.area+b.len>a.area+a.len?b:a)); const b=geoBbox({geometry:w.geom});
+  map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:window.innerWidth<=760?{top:60,bottom:240,left:30,right:30}:{top:80,bottom:80,left:420,right:80},maxZoom:17,duration:900});
+  showWaterPopup(w.wid, w.isLine?w.c:w.c); if(window.innerWidth<=760) $('panel').classList.add('min'); });
+function showWaterPopup(wid,ll){
+  const w=WATER.find(x=>x.wid===wid); if(!w) return; const k=w.k;
+  const groesse = w.isLine ? `Länge dieses Abschnitts in OSM: ${fmtDist(w.len)}` : `Fläche laut Karte: ${nf(w.area)} m²`;
+  let html=`<div class="pop long"><span class="tag" style="background:#60a5fa">${w.isLine?'Bach':'Gewässer'}</span><h4>${esc(k?k.name:(w.name||'Teich ohne Namen'))}</h4>`;
+  if(k){
+    html+=k.facts.map(([a,b])=>`<div class="fact"><span>${esc(a)}</span><span>${esc(b)}</span></div>`).join('');
+    html+=k.text.map(t=>`<p>${esc(t)}</p>`).join('');
+    html+=`<div class="muted small">${esc(groesse)}</div><div class="muted small" style="margin-top:6px">Quellen: ${k.quellen.map(([t,u])=>`<a href="${u}" target="_blank" rel="noopener">${esc(t)}</a>`).join(', ')}</div>`;
+  } else {
+    html+=`<div class="fact"><span>${w.isLine?'Länge (Abschnitt)':'Fläche laut Karte'}</span><span>${w.isLine?fmtDist(w.len):nf(w.area)+' m²'}</span></div>`;
+    if(w.tags.water) html+=`<div class="fact"><span>Typ in OSM</span><span>${esc({pond:'Teich',lake:'See',basin:'Becken',reservoir:'Speicher',oxbow:'Altarm',ditch:'Graben',stream_pool:'Kolk'}[w.tags.water]||w.tags.water)}</span></div>`;
+    html+=`<p>Für dieses Gewässer liegen keine Detailinfos vor. In Farmsen wurde über Jahrhunderte Lehm für Ziegel abgebaut, viele Teiche im Stadtteil sind aus solchen Tongruben entstanden.</p>`;
+  }
+  html+='</div>';
+  popup && popup.remove();
+  popup=new maplibregl.Popup({offset:10,maxWidth:'330px'}).setLngLat(ll).setHTML(html).addTo(map);
+}
+$('tWater').addEventListener('change',e=>['water-fill','water-line','water-hit'].forEach(id=>vis(id,e.target.checked)));
 
 /* ============ Flugzeuge live ============ */
 function planeImage(){
@@ -1117,6 +1226,10 @@ $('mobileToggle').onclick=()=>$('panel').classList.toggle('min');
 
 function bindMapEvents(){
   map.on('click','hist',e=>showHistPopup(e.features[0].properties.id, e.lngLat));
+  const waterClick=e=>{ if(histMarker) return; if(map.queryRenderedFeatures(e.point,{layers:['poi','hist','planes'].filter(l=>map.getLayer(l))}).length) return;
+    showWaterPopup(e.features[0].properties.wid, e.lngLat); };
+  map.on('click','water-fill',waterClick); map.on('click','water-hit',waterClick);
+  ['water-fill','water-hit'].forEach(l=>{ map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave',l,()=>map.getCanvas().style.cursor=''); });
   map.on('mouseenter','hist',()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave','hist',()=>map.getCanvas().style.cursor='');
   map.on('click','poi',e=>{ const id=e.features[0].properties.fid; const f=state.features.find(x=>x.id===id); if(f) showPopup(f); });
   map.on('click','area-3d',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['poi']}).length) return; const f=state.features.find(x=>x.id===e.features[0].properties.fid); if(f) showPopup(f); });
