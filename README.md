@@ -11,3 +11,4 @@ Live: https://schreiberlars.github.io/farmsenmaps/
 - Topografie: OpenTopoMap
 - Höhendaten: Mapzen Terrarium (AWS Terrain Tiles)
 - Routing: FOSSGIS OSRM (routing.openstreetmap.de)
+- Flugzeuge live: adsb.lol (ODbL), Ersatz: OpenSky Network

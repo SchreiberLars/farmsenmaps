@@ -163,6 +163,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="row"><div>Gebäude der Orte einfärben<small>gefilterte Orte als farbige Gebäude</small></div><label class="switch"><input type="checkbox" id="tAreas" checked><i></i></label></div>
       <div class="row"><div>Höhenlinien</div><label class="switch"><input type="checkbox" id="tContours"><i></i></label></div>
       <div class="row"><div>Schummerung<small>Geländeschatten</small></div><label class="switch"><input type="checkbox" id="tHillshade"><i></i></label></div>
+      <div class="row"><div>Flugzeuge live<small id="planeInfo">ADS-B, alle 10 Sekunden</small></div><label class="switch"><input type="checkbox" id="tPlanes"><i></i></label></div>
       <div class="row"><div>Stadtteil hervorheben</div><label class="switch"><input type="checkbox" id="tMask" checked><i></i></label></div>
     </div>
     <div class="section"><h3>Gelände in 3D</h3>
@@ -274,7 +275,7 @@ const demSource = new mlcontour.DemSource({ url:DEM_URL, encoding:'terrarium', m
 demSource.setupMaplibre(maplibregl);
 
 const map = new maplibregl.Map({ container:'map', style:STYLE_URL, ...HOME, maxPitch:80, hash:false, attributionControl:{compact:true,
-  customAttribution:'POIs © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> | Höhen: Mapzen Terrarium | Satellit: Esri | Topo: OpenTopoMap | Routing: FOSSGIS (OSRM)'} });
+  customAttribution:'POIs © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> | Höhen: Mapzen Terrarium | Satellit: Esri | Topo: OpenTopoMap | Routing: FOSSGIS (OSRM) | Flugzeuge: adsb.lol, OpenSky Network'} });
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'top-right');
 map.addControl(new maplibregl.ScaleControl({unit:'metric'}), 'bottom-right');
 map.addControl(new maplibregl.GeolocateControl({trackUserLocation:false}), 'top-right');
@@ -339,6 +340,15 @@ map.on('load', () => {
   map.addLayer({ id:'poi-label', type:'symbol', source:'pois', minzoom:15.5, layout:{
     'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':12,'text-offset':[0,1.1],'text-anchor':'top','text-optional':true},
     paint:{'text-color':'#1b2430','text-halo-color':'#fff','text-halo-width':1.4} });
+
+  // Flugzeuge
+  map.addImage('plane', planeImage());
+  map.addSource('planes', { type:'geojson', data:emptyFC() });
+  map.addLayer({ id:'planes', type:'symbol', source:'planes', layout:{
+    'icon-image':'plane','icon-size':['interpolate',['linear'],['zoom'],9,.32,14,.55,17,.8],'icon-rotate':['get','track'],
+    'icon-rotation-alignment':'map','icon-pitch-alignment':'map','icon-allow-overlap':true,'icon-ignore-placement':true,
+    'text-field':['get','label'],'text-font':['Noto Sans Regular'],'text-size':11,'text-offset':[0,1.6],'text-anchor':'top','text-optional':true },
+    paint:{'icon-opacity':['case',['get','ground'],.55,1],'text-color':'#1b2430','text-halo-color':'#fff','text-halo-width':1.4} });
 
   map.setTerrain({ source:'dem-terrain', exaggeration:1 });
   try { map.setSky({ 'sky-color':'#7cb7e8','horizon-color':'#dcecf8','fog-color':'#dcecf8','sky-horizon-blend':.6,'horizon-fog-blend':.6,'fog-ground-blend':.4 }); } catch(e){}
@@ -606,6 +616,56 @@ document.addEventListener('click',e=>{
 });
 $('routeClear').onclick=()=>{ map.getSource('route').setData(emptyFC()); $('routeBox').style.display='none'; };
 
+/* ============ Flugzeuge live ============ */
+function planeImage(){
+  const s=64, cv=document.createElement('canvas'); cv.width=cv.height=s; const x=cv.getContext('2d');
+  x.translate(s/2,s/2);
+  const P=[[0,-28],[4,-20],[4,-6],[28,6],[28,11],[4,4],[3,18],[11,24],[11,28],[0,25],[-11,28],[-11,24],[-3,18],[-4,4],[-28,11],[-28,6],[-4,-6],[-4,-20]];
+  x.beginPath(); P.forEach(([a,b],i)=>i?x.lineTo(a,b):x.moveTo(a,b)); x.closePath();
+  x.lineJoin='round'; x.lineWidth=4; x.strokeStyle='#0b1118'; x.stroke(); x.fillStyle='#ffd23f'; x.fill();
+  return x.getImageData(0,0,s,s);
+}
+const PLANE_LAT=53.6064, PLANE_LON=10.1186;
+let planeTimer=null, planes=[];
+async function loadPlanesAdsbLol(){
+  const r=await fetch(`https://api.adsb.lol/v2/point/${PLANE_LAT}/${PLANE_LON}/40`); if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  return (j.ac||[]).filter(a=>a.lat!=null&&a.lon!=null).map(a=>({ id:a.hex, call:(a.flight||'').trim(), lon:a.lon, lat:a.lat,
+    ground:a.alt_baro==='ground', alt:typeof a.alt_baro==='number'?a.alt_baro*0.3048:null, speed:a.gs!=null?a.gs*1.852:null,
+    track:a.track||a.true_heading||0, typ:a.t||'', reg:a.r||'' }));
+}
+async function loadPlanesOpenSky(){
+  const r=await fetch('https://opensky-network.org/api/states/all?lamin=53.25&lomin=9.45&lamax=53.95&lomax=10.8'); if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  return (j.states||[]).filter(s=>s[5]!=null&&s[6]!=null).map(s=>({ id:s[0], call:(s[1]||'').trim(), lon:s[5], lat:s[6],
+    ground:!!s[8], alt:s[7], speed:s[9]!=null?s[9]*3.6:null, track:s[10]||0, typ:'', reg:s[2]||'' }));
+}
+async function fetchPlanes(){
+  if(document.hidden || !$('tPlanes').checked) return;
+  let quelle='adsb.lol';
+  try{ planes=await loadPlanesAdsbLol(); }
+  catch(e){ try{ planes=await loadPlanesOpenSky(); quelle='OpenSky'; }catch(e2){ $('planeInfo').textContent='Flugdaten gerade nicht erreichbar'; return; } }
+  map.getSource('planes').setData({type:'FeatureCollection',features:planes.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.lon,p.lat]},
+    properties:{ id:p.id, track:p.track, ground:p.ground, label:(p.call||p.reg||'')+(p.alt&&!p.ground?' '+Math.round(p.alt/10)*10+' m':'') }}))});
+  $('planeInfo').textContent=`${planes.length} Flugzeuge, ${quelle}, ${new Date().toLocaleTimeString('de-DE')}`;
+}
+$('tPlanes').addEventListener('change',e=>{
+  clearInterval(planeTimer);
+  if(e.target.checked){ fetchPlanes(); planeTimer=setInterval(fetchPlanes,10000); }
+  else { map.getSource('planes').setData(emptyFC()); $('planeInfo').textContent='ADS-B, alle 10 Sekunden'; }
+});
+function showPlanePopup(id,ll){
+  const p=planes.find(x=>x.id===id); if(!p) return;
+  const html=`<div class="pop"><span class="tag" style="background:#ffd23f">Flugzeug</span><h4>${esc(p.call||p.reg||p.id)}</h4>
+    ${p.typ||p.reg?`<div class="muted">${esc([p.typ,p.reg].filter(Boolean).join(' | '))}</div>`:''}
+    <div>${p.ground?'Am Boden':p.alt!=null?'Höhe: '+Math.round(p.alt).toLocaleString('de-DE')+' m':'Höhe unbekannt'}</div>
+    ${p.speed!=null?`<div>Geschwindigkeit: ${Math.round(p.speed)} km/h</div>`:''}
+    <div>Kurs: ${Math.round(p.track)}°</div>
+    <div><a href="https://adsb.lol/?icao=${esc(p.id)}" target="_blank" rel="noopener">Flug verfolgen</a></div></div>`;
+  popup && popup.remove();
+  popup=new maplibregl.Popup({offset:12,maxWidth:'260px'}).setLngLat(ll).setHTML(html).addTo(map);
+}
+
 /* ============ Ansichten und Ebenen ============ */
 function vis(id,on){ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',on?'visible':'none'); }
 function applyView(){
@@ -654,7 +714,8 @@ $('mobileToggle').onclick=()=>$('panel').classList.toggle('min');
 function bindMapEvents(){
   map.on('click','poi',e=>{ const id=e.features[0].properties.fid; const f=state.features.find(x=>x.id===id); if(f) showPopup(f); });
   map.on('click','area-3d',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['poi']}).length) return; const f=state.features.find(x=>x.id===e.features[0].properties.fid); if(f) showPopup(f); });
-  ['poi','area-3d'].forEach(l=>{ map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave',l,()=>map.getCanvas().style.cursor=''); });
+  map.on('click','planes',e=>showPlanePopup(e.features[0].properties.id,e.lngLat));
+  ['poi','area-3d','planes'].forEach(l=>{ map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave',l,()=>map.getCanvas().style.cursor=''); });
   let raf=0;
   const showElev = ll => { cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{
     let h=null; try{ h=map.queryTerrainElevation(ll); }catch(e){}
