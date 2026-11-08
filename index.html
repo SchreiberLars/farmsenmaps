@@ -31,6 +31,10 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-famil
 .cmpsel label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .cmpsel select{background:#1a2430;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px}
 .small{font-size:12px}
+.tl{border-left:2px solid rgba(224,166,58,.5);margin-left:4px;padding-left:12px}
+.tl div{position:relative;margin:0 0 10px;font-size:12.5px;line-height:1.45}
+.tl div:before{content:"";position:absolute;left:-17px;top:5px;width:8px;height:8px;border-radius:50%;background:#e0a63a}
+.tl b{display:block;color:#e0a63a;font-size:12px}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tile{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.03)}
 .tile b{display:block;font-size:20px;letter-spacing:-.02em}
@@ -199,6 +203,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="row"><div>Gebäude der Orte einfärben<small>gefilterte Orte als farbige Gebäude</small></div><label class="switch"><input type="checkbox" id="tAreas" checked><i></i></label></div>
       <div class="row"><div>Höhenlinien</div><label class="switch"><input type="checkbox" id="tContours"><i></i></label></div>
       <div class="row"><div>Schummerung<small>Geländeschatten</small></div><label class="switch"><input type="checkbox" id="tHillshade"><i></i></label></div>
+      <div class="row"><div>Geschichte<small>historische Orte mit Chronik</small></div><label class="switch"><input type="checkbox" id="tHist" checked><i></i></label></div>
       <div class="row"><div>Flugzeuge live<small id="planeInfo">ADS-B, alle 10 Sekunden</small></div><label class="switch"><input type="checkbox" id="tPlanes"><i></i></label></div>
       <div class="row"><div>Stadtteil hervorheben</div><label class="switch"><input type="checkbox" id="tMask" checked><i></i></label></div>
     </div>
@@ -217,6 +222,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   </div>
 
   <div class="scroll" id="tab-zeit" hidden>
+    <div class="section" id="histSection"><h3>Geschichte vor Ort</h3>
+      <div class="theme open"><div class="theme-head" id="histHead"><span class="dot" style="background:#e0a63a"></span><b>Trabrennbahn Farmsen</b><span class="cnt">1911 bis heute</span></div>
+        <div style="padding:0 12px 12px">
+          <p class="small" style="margin:0 0 8px">Von der Ziegelei zur Rennbahn, die zu den bedeutendsten Deutschlands gehörte, und weiter zum Wohnpark, dessen Häuser bis heute das Oval nachzeichnen.</p>
+          <div class="btns" style="margin-bottom:8px"><button class="btn" id="histShow">Auf der Karte zeigen</button></div>
+          <div id="histTimeline"></div>
+        </div></div>
+    </div>
     <div class="section"><h3>Damals und heute</h3>
       <div class="row"><div>Vergleich anzeigen<small>Trennlinie auf der Karte ziehen</small></div><label class="switch"><input type="checkbox" id="tCompare"><i></i></label></div>
       <div class="cmpsel"><label>Links<select id="selL"></select></label><label>Rechts<select id="selR"></select></label></div>
@@ -416,6 +429,12 @@ map.on('load', () => {
 
   // Flugzeuge
   map.addImage('plane', planeImage());
+  map.addSource('hist', { type:'geojson', data:emptyFC() });
+  map.addSource('hist-line', { type:'geojson', data:emptyFC() });
+  map.addLayer({ id:'hist-line', type:'line', source:'hist-line', layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#e0a63a','line-width':['interpolate',['linear'],['zoom'],13,2,17,5],'line-opacity':.85} });
+  map.addLayer({ id:'hist', type:'circle', source:'hist', paint:{'circle-radius':['interpolate',['linear'],['zoom'],12,6,16,10],'circle-color':'#e0a63a','circle-stroke-color':'#fff','circle-stroke-width':2} });
+  map.addLayer({ id:'hist-label', type:'symbol', source:'hist', minzoom:13, layout:{'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':12,'text-offset':[0,1.3],'text-anchor':'top'},
+    paint:{'text-color':'#6b4a12','text-halo-color':'#fff','text-halo-width':1.6} });
   map.addSource('planes', { type:'geojson', data:emptyFC() });
   map.addLayer({ id:'planes', type:'symbol', source:'planes', layout:{
     'icon-image':'plane','icon-size':['interpolate',['linear'],['zoom'],9,.32,14,.55,17,.8],'icon-rotate':['get','track'],
@@ -427,6 +446,7 @@ map.on('load', () => {
   try { map.setSky({ 'sky-color':'#7cb7e8','horizon-color':'#dcecf8','fog-color':'#dcecf8','sky-horizon-blend':.6,'horizon-fog-blend':.6,'fog-ground-blend':.4 }); } catch(e){}
 
   bindMapEvents();
+  loadHistory();
   applyView();
   loadData(false);
 });
@@ -901,6 +921,75 @@ $('wxDate').addEventListener('change',e=>{
 });
 document.querySelector('.tabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b&&b.dataset.tab==='zahlen') loadWetter(); });
 
+/* ============ Geschichte ============ */
+const HIST = [{ id:'trabrennbahn', name:'Ehemalige Trabrennbahn', street:'Max-Herz-Ring', fallback:[10.1050,53.5975],
+  kurz:'1911 bis 1976 eine der bedeutendsten Trabrennbahnen Deutschlands, seit 2000 ein Wohnpark mit 1.170 Wohnungen rund um das alte Oval.',
+  chronik:[
+   ['vor 1910','Das Gelände ist eine Ziegelei, seit dem 17. Jahrhundert wird hier Lehm abgebaut. Um 1900 heißt sie Dampfziegelei Farmsen und gehört dem Kaufmann Johann Giese. Die Ziegelteiche im heutigen Innenhof stammen aus dieser Zeit.'],
+   ['1910','Johann Giese aus Wandsbek gründet mit anderen Hamburgern die Trabrennbahn-Gesellschaft Hamburg-Farmsen. Drei frühere Anläufe waren gescheitert.'],
+   ['6. August 1911','Eröffnung der 1.200 Meter langen Bahn. Farmsen wird damit in ganz Deutschland bekannt, anfangs gibt es über 20 Renntage im Jahr.'],
+   ['1914 bis 1918','Im Ersten Weltkrieg fehlen Hafer und Transportmittel, die Bahn übersteht die Zeit trotzdem.'],
+   ['1924','Der U-Bahnhof Trabrennbahn öffnet am 30. März, zunächst nur an Renntagen (mittwochs und sonntags). Ab Oktober 1933 halten die Züge täglich.'],
+   ['1927','Eine Straßenbahn auf dem Mittelstreifen des Friedrich-Ebert-Damms bringt weitere Besucher zur Rennbahn.'],
+   ['Ende der 1920er','Farmsen zählt zu den modernsten Rennbahnen Deutschlands, mit Restaurant und beheizbarer Wetthalle. Hier fahren Größen wie Charlie Mills und Walter Heitmann.'],
+   ['8. Juli 1929','Ein Großfeuer in den Stallungen, viele Pferde sterben.'],
+   ['1930','Charlie Mills stellt mit dem Pferd Probst einen Bahnrekord auf, der bis 1972 hält.'],
+   ['1936','Eine Flutlichtanlage macht Abendrennen möglich.'],
+   ['1943 bis 1945','Nach den Luftangriffen auf Hamburg wird das Gelände Sammelstelle für Ausgebombte. Auf dem Gelände gibt es außerdem ein Lager für italienische Militärinternierte, die Zwangsarbeit leisten müssen. 1944 zerstören Bomben die Rennbahn.'],
+   ['Dezember 1945','Das erste Rennen nach Kriegsende.'],
+   ['1953','Ein neuer Belag macht die Bahn zum schnellsten Geläuf Europas, hier laufen Qualifikationsrennen für Weltmeisterschaften.'],
+   ['1966','Die Betreibergesellschaft ist insolvent. Das rund 24 Hektar große Gelände geht an die Familie des 1965 gestorbenen Tchibo-Mitgründers Max Herz.'],
+   ['1974','Wiedereröffnung mit neuen Tribünen, doch das Publikum kommt nicht mehr wie früher.'],
+   ['25. Februar 1976','Das letzte Rennen. Der Senat setzt auf die Trabrennbahn Bahrenfeld, Farmsen bekommt keine Erlaubnis für Wetten mehr.'],
+   ['1976 bis Ende der 1980er','Das Gelände liegt brach, Gebäude und Tribünen verfallen.'],
+   ['Ende der 1980er','Ein Wettbewerb für Wohnungsbau wird ausgeschrieben. Der Siegerentwurf setzt die Häuser auf das Oval der Rennbahn, mit schrägen Dächern im Stil von Tribünen. Das Innenfeld mit den alten Bäumen bleibt frei.'],
+   ['1995 bis 2000','Baubeginn im September 1995, gut ein Jahr später ziehen die ersten Mieter ein. Bis 2000 entstehen 1.170 Wohnungen, das Konzept erhält internationale Städtebaupreise.'],
+   ['Heute','Der Max-Herz-Ring folgt dem alten Oval. Der Name des U-Bahnhofs blieb, und Straßen erinnern an die Fahrer Charlie Mills, Walter Heitmann und Johannes „Hänschen" Frömming.'] ],
+  quellen:[['Wikipedia: Trabrennbahn Farmsen','https://de.wikipedia.org/wiki/Trabrennbahn_Farmsen'],['Die Linie U1: Trabrennbahn','https://fredriks.de/hvv/u1/u1-3.php?f=WK'],
+   ['Italienische Militärinternierte in Farmsen','https://blog.holgerartus.eu/2021/05/29/700-italienische-militaerinternierte-in-der-trabrennbahn-farmsen/'],
+   ['Terrain-Gesellschaft Hamburg-Farmsen','https://www.historische-wertpapiere.de/de/hsk-auktion-xvii/?AID=4882&AKTIE=Terrain-Gesellschaft+Hamburg-Farmsen+mbH']] }];
+const HIST_KEY='farmsen-hist-v1';
+async function loadHistory(){
+  let lines=null;
+  try{ const c=JSON.parse(localStorage.getItem(HIST_KEY)||'null'); if(c && Date.now()-c.t<30*864e5) lines=c.lines; }catch(e){}
+  if(!lines){
+    try{
+      const j=await overpass('[out:json][timeout:25];way["highway"]["name"="Max-Herz-Ring"](53.585,10.08,53.61,10.13);out geom;');
+      lines=(j.elements||[]).filter(w=>w.geometry).map(w=>w.geometry.map(p=>[p.lon,p.lat]));
+      try{ localStorage.setItem(HIST_KEY,JSON.stringify({t:Date.now(),lines})); }catch(e){}
+    }catch(e){ lines=[]; }
+  }
+  const h=HIST[0];
+  if(lines.length){
+    const pts=lines.flat(); h.c=[pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
+    map.getSource('hist-line').setData({type:'FeatureCollection',features:lines.map(l=>({type:'Feature',geometry:{type:'LineString',coordinates:l},properties:{}}))});
+  } else h.c=h.fallback;
+  map.getSource('hist').setData({type:'FeatureCollection',features:HIST.map(x=>({type:'Feature',geometry:{type:'Point',coordinates:x.c},properties:{id:x.id,name:x.name}}))});
+}
+function renderHistTimeline(){
+  const h=HIST[0];
+  $('histTimeline').innerHTML='<div class="tl">'+h.chronik.map(([j,t])=>`<div><b>${esc(j)}</b>${esc(t)}</div>`).join('')+'</div>'
+    +'<p class="muted small">Quellen: '+h.quellen.map(([t,u])=>`<a href="${u}" target="_blank" rel="noopener" style="color:var(--muted)">${esc(t)}</a>`).join(', ')+'</p>';
+}
+function showHistPopup(id,ll){
+  const h=HIST.find(x=>x.id===id); if(!h) return;
+  popup && popup.remove();
+  popup=new maplibregl.Popup({offset:12,maxWidth:'300px'}).setLngLat(ll||h.c).setHTML(`<div class="pop"><span class="tag" style="background:#e0a63a">Geschichte</span><h4>${esc(h.name)}</h4>
+    <div>${esc(h.kurz)}</div><div class="routebtns"><button data-histopen="${h.id}">Ganze Geschichte</button></div></div>`).addTo(map);
+}
+function showHist(){
+  const h=HIST[0]; if(!h.c) return;
+  $('tHist').checked=true; ['hist','hist-line','hist-label'].forEach(id=>vis(id,true));
+  map.flyTo({center:h.c,zoom:16.2,pitch:50,bearing:-18,speed:1.1});
+  showHistPopup(h.id);
+  if(window.innerWidth<=760) $('panel').classList.add('min');
+}
+document.addEventListener('click',e=>{ const b=e.target.closest('[data-histopen]'); if(!b) return;
+  document.querySelector('.tabs button[data-tab="zeit"]').click(); $('tab-zeit').scrollTop=0; });
+$('histShow').onclick=showHist;
+$('tHist').addEventListener('change',e=>['hist','hist-line','hist-label'].forEach(id=>vis(id,e.target.checked)));
+renderHistTimeline();
+
 /* ============ Flugzeuge live ============ */
 function planeImage(){
   const s=64, cv=document.createElement('canvas'); cv.width=cv.height=s; const x=cv.getContext('2d');
@@ -997,6 +1086,8 @@ $('onlyInside').addEventListener('change',e=>{ state.onlyInside=e.target.checked
 $('mobileToggle').onclick=()=>$('panel').classList.toggle('min');
 
 function bindMapEvents(){
+  map.on('click','hist',e=>showHistPopup(e.features[0].properties.id, e.lngLat));
+  map.on('mouseenter','hist',()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave','hist',()=>map.getCanvas().style.cursor='');
   map.on('click','poi',e=>{ const id=e.features[0].properties.fid; const f=state.features.find(x=>x.id===id); if(f) showPopup(f); });
   map.on('click','area-3d',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['poi']}).length) return; const f=state.features.find(x=>x.id===e.features[0].properties.fid); if(f) showPopup(f); });
   map.on('click','planes',e=>showPlanePopup(e.features[0].properties.id,e.lngLat));
